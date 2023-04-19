@@ -12,3 +12,7 @@ class Tag(db.Model):
         back_populates="tags",
     )
 
+    def __str__(self):
+        return self.name
+
+
