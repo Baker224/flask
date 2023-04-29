@@ -2,6 +2,7 @@ from combojsonapi.event import EventPlugin
 from combojsonapi.permission import PermissionPlugin
 from combojsonapi.spec import ApiSpecPlugin
 from flask import Flask
+from flask import redirect, url_for
 
 from blog import commands
 from blog.extensions import db, login_manager, migrate, csrf, admin, api
@@ -88,3 +89,7 @@ def register_blueprints(app: Flask):
 def register_commands(app: Flask):
     app.cli.add_command(commands.create_init_user)
     app.cli.add_command(commands.create_init_tags)
+    
+@app.route('/')
+def index():
+    return redirect(url_for('auth.login'))
