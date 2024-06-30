@@ -10,6 +10,11 @@ from blog.views.auth import login_manager, auth_app
 
 from blog.models.database import db
 
+import os
+
+from flask_migrate import Migrate
+
+
 app = Flask(__name__)
 
 app.config["SECRET_KEY"] = 'qwasaersdadafafafafaasdas'
@@ -17,6 +22,10 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///db.sqlite"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db.init_app(app)
 
+cfg_name = os.environ.get("CONFIG_NAME") or "ProductionConfig"
+app.config.from_object(f"blog.configs.{cfg_name}")
+
+migrate = Migrate(app, db, compare_type=True)
 
 @app.route("/")
 def index():
