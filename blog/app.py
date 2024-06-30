@@ -18,6 +18,9 @@ from blog.security import flask_bcrypt
 
 from blog.views.authors import authors_app
 
+from blog.admin import admin
+
+
 app = Flask(__name__)
 
 app.config["SECRET_KEY"] = 'qwasaersdadafafafafaasdas'
@@ -25,8 +28,12 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///db.sqlite"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db.init_app(app)
 
+
+
 cfg_name = os.environ.get("CONFIG_NAME") or "DevConfig"
 app.config.from_object(f"blog.configs.{cfg_name}")
+
+admin.init_app(app)
 
 migrate = Migrate(app, db, compare_type=True)
 
