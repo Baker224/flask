@@ -1,2 +1,2 @@
-# Flask
-GB Flask
+GeekBrains FLASK study project
+

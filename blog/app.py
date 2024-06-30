@@ -1,168 +1,92 @@
-from time import time
-
-from flask import Flask, render_template
-from werkzeug.exceptions import BadRequest
-from blog.views.articles import articles_app
-from flask import request
-from flask import g
-from blog.views.users import users_app
-from blog.views.auth import login_manager, auth_app
-
-from blog.models.database import db
-
-import os
-
-from flask_migrate import Migrate
-
-from blog.security import flask_bcrypt
-
-from blog.views.authors import authors_app
-
-from blog.admin import admin
-from blog.api import init_api
+from combojsonapi.event import EventPlugin
+from combojsonapi.permission import PermissionPlugin
+from combojsonapi.spec import ApiSpecPlugin
+from flask import Flask
 
 
+from blog import commands
+from blog.extensions import db, login_manager, migrate, csrf, admin, api
+from blog.models import User
 
 
-app = Flask(__name__)
+def create_app() -> Flask:
+    app = Flask(__name__)
+    app.config.from_object('blog.config')
 
-app.config["SECRET_KEY"] = 'qwasaersdadafafafafaasdas'
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///db.sqlite"
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-db.init_app(app)
-
-
-
-cfg_name = os.environ.get("CONFIG_NAME") or "DevConfig"
-app.config.from_object(f"blog.configs.{cfg_name}")
-
-admin.init_app(app)
-
-migrate = Migrate(app, db, compare_type=True)
-
-flask_bcrypt.init_app(app)
-
-api = init_api(app)
-
-@app.route("/")
-def index():
-    return render_template("index.html")
+    register_extensions(app)
+    register_blueprints(app)
+    register_commands(app)
+    register_api_routes()
+    return app
 
 
-@app.route("/greet/<name>/")
-def greet_name(name: str):
-    return f"Hello {name}!"
+def register_extensions(app):
+    db.init_app(app)
+    migrate.init_app(app, db, compare_type=True)
+    csrf.init_app(app)
+    admin.init_app(app)
+    api.plugins = [
+        EventPlugin(),
+        PermissionPlugin(),
+        ApiSpecPlugin(
+            app=app,
+            tags={
+                'Tag': 'Tag API',
+                'User': 'User API',
+                'Author': 'Author API',
+                'Article': 'Article API',
+            }
+        ),
+    ]
+    api.init_app(app)
+
+    login_manager.login_view = 'auth.login'
+    login_manager.init_app(app)
+
+    @login_manager.user_loader
+    def load_user(user_id):
+        return User.query.get(int(user_id))
 
 
-@app.route("/user/")
-def read_user():
-    name = request.args.get("name")
-    surname = request.args.get("surname")
-    return f"User {name or '[no name]'} {surname or '[no surname]'}"
+def register_api_routes():
+    from blog.api.tag import TagList
+    from blog.api.tag import TagDetail
+    from blog.api.user import UserList
+    from blog.api.user import UserDetail
+    from blog.api.author import AuthorList
+    from blog.api.author import AuthorDetail
+    from blog.api.article import ArticleList
+    from blog.api.article import ArticleDetail
+
+    api.route(TagList, 'tag_list', '/api/tags/', tag='Tag')
+    api.route(TagDetail, 'tag_detail', '/api/tags/<int:id>', tag='Tag')
+
+    api.route(UserList, 'user_list', '/api/users/', tag='User')
+    api.route(UserDetail, 'user_detail', '/api/users/<int:id>', tag='User')
+
+    api.route(AuthorList, 'author_list', '/api/authors/', tag='Author')
+    api.route(AuthorDetail, 'author_detail', '/api/authors/<int:id>', tag='Author')
+
+    api.route(ArticleList, 'article_list', '/api/articles/', tag='Article')
+    api.route(ArticleDetail, 'article_detail', '/api/articles/<int:id>', tag='Article')
 
 
-@app.route("/status/", methods=["GET", "POST"])
-def custom_status_code():
-    if request.method == "GET":
-        return """\
-        To get response with custom status code
-        send request using POST method
-        and pass `code` in JSON body / FormData
-        """
-    print("raw bytes data:", request.data)
-    if request.form and "code" in request.form:
-        return "code from form", request.form["code"]
-    if request.json and "code" in request.json:
-        return "code from json", request.json["code"]
-    return "", 204
+def register_blueprints(app: Flask):
+    from blog.auth.views import auth
+    from blog.user.views import user
+    from blog.author.views import author
+    from blog.articles.views import article
+    from blog import admin
+
+    app.register_blueprint(user)
+    app.register_blueprint(auth)
+    app.register_blueprint(author)
+    app.register_blueprint(article)
+
+    admin.register_views()
 
 
-@app.before_request
-def process_before_request():
-    """
-    Sets start_time to `g` object
-    """
-    g.start_time = time()
-
-
-@app.after_request
-def process_after_request(response):
-    """
-    adds process time in headers
-    """
-    if hasattr(g, "start_time"):
-        response.headers["process-time"] = time() - g.start_time
-    return response
-
-
-@app.route("/power/")
-def power_value():
-    x = request.args.get("x") or ""
-    y = request.args.get("y") or ""
-    if not (x.isdigit() and y.isdigit()):
-        app.logger.info("invalid values for power: x=%r and y=%r", x, y)
-        raise BadRequest("please pass integers in `x` and `y` query params")
-    x = int(x)
-    y = int(y)
-    result = x ** y
-    app.logger.debug("%s ** %s = %s", x, y, result)
-    return str(result)
-
-
-@app.route("/divide-by-zero/")
-def do_zero_division():
-    return 1 / 0
-
-
-@app.cli.command("create-admin")
-def create_admin():
-
-
-    """
-    Run in your terminal:
-    ➜ flask create-admin
-    > created admin: <User #1 'admin'>
-    """
-    from blog.models import User
-
-    admin = User(username="admin", is_staff=True)
-    admin.password = os.environ.get("ADMIN_PASSWORD") or "adminpass"
-    db.session.add(admin)
-    db.session.commit()
-    print("created admin:", admin)
-
-
-@app.errorhandler(ZeroDivisionError)
-def handle_zero_division_error(error):
-    print(error)  # prints str version of error: 'division by zero'
-    app.logger.exception("Here's traceback for zero division error")
-    return "Never divide by zero!", 400
-
-@app.cli.command("create-tags")
-def create_tags():
-    """
-    Run in your terminal:
-    ➜ flask create-tags
-    """
-    from blog.models import Tag
-    for name in [
-    "flask",
-    "django",
-    "python",
-    "sqlalchemy",
-    "news",
-    ]:
-    tag = Tag(name=name)
-    db.session.add(tag)
-    db.session.commit()
-    print("created tags")
-
-app.register_blueprint(users_app, url_prefix="/users")
-
-app.register_blueprint(articles_app, url_prefix="/articles")
-
-app.register_blueprint(authors_app, url_prefix="/authors")
-
-app.config["SECRET_KEY"] = "qwasaersdadafafafafaasdas"
-app.register_blueprint(auth_app, url_prefix="/")
-login_manager.init_app(app)
+def register_commands(app: Flask):
+    app.cli.add_command(commands.create_init_user)
+    app.cli.add_command(commands.create_init_tags)
+    
